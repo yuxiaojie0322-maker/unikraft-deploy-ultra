@@ -7,13 +7,16 @@ on:
         description: "部署模式 / 选择账号"
         required: true
         type: choice
-        default: "ALL - 一键部署 3 账号 6 节点黄金矩阵 (A:sin+sfo | B:sin+fra | C:was+dal)"
+        default: "A_DUAL - 一键部署账号 A 双节点 (sin 新加坡 + sfo 美西旧金山)"
         options:
+          - "A_DUAL - 一键部署账号 A 双节点 (sin 新加坡 + sfo 美西旧金山)"
           - "ALL - 一键部署 3 账号 6 节点黄金矩阵 (A:sin+sfo | B:sin+fra | C:was+dal)"
-          - "A - 账号 A (UNIKRAFT_TOKEN_A)"
-          - "B - 账号 B (UNIKRAFT_TOKEN_B)"
-          - "C - 账号 C (UNIKRAFT_TOKEN_C)"
-          - "default - 默认账号 (UNIKRAFT_TOKEN)"
+          - "B_DUAL - 一键部署账号 B 双节点 (sin 新加坡 + fra 法兰克福)"
+          - "C_DUAL - 一键部署账号 C 双节点 (was 华盛顿 + dal 达拉斯)"
+          - "A - 账号 A 单节点 (UNIKRAFT_TOKEN_A)"
+          - "B - 账号 B 单节点 (UNIKRAFT_TOKEN_B)"
+          - "C - 账号 C 单节点 (UNIKRAFT_TOKEN_C)"
+          - "default - 默认账号单节点 (UNIKRAFT_TOKEN)"
       metro:
         description: "部署地区 (仅单账号模式生效，ALL 模式自动分配 5 区 6 节点)"
         required: true
@@ -274,6 +277,15 @@ jobs:
             deploy_slot "A" "sfo"
             deploy_slot "B" "sin"
             deploy_slot "B" "fra"
+            deploy_slot "C" "was"
+            deploy_slot "C" "dal"
+          elif [[ "$ACCOUNT_CHOICE" == A_DUAL* ]]; then
+            deploy_slot "A" "sin"
+            deploy_slot "A" "sfo"
+          elif [[ "$ACCOUNT_CHOICE" == B_DUAL* ]]; then
+            deploy_slot "B" "sin"
+            deploy_slot "B" "fra"
+          elif [[ "$ACCOUNT_CHOICE" == C_DUAL* ]]; then
             deploy_slot "C" "was"
             deploy_slot "C" "dal"
           else
