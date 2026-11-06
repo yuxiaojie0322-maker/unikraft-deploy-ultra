@@ -102,7 +102,7 @@ jobs:
           ARGO_TOKEN_C_DAL: ${{ secrets.ARGO_TOKEN_C_DAL }}
           ARGO_DOMAIN_C_DAL: ${{ secrets.ARGO_DOMAIN_C_DAL }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
           if [[ -z "$MASTER_UUID" ]]; then
             echo "❌ 错误: 必须在 GitHub Secrets 中配置 UUID！" >&2
@@ -191,9 +191,22 @@ jobs:
             echo "===================================================="
 
             rm -rf "$HOME/.config/unikraft"
-            echo "$TOKEN" | unikraft login --token -
+            if ! echo "$TOKEN" | unikraft login --token -; then
+              echo "❌ [${ACC_LABEL}] 登录失败，跳过该节点"
+              SUMMARY_ROWS="${SUMMARY_ROWS}| **${ACC_LABEL}** | \`${METRO_CODE}\` | \`${MEMORY}\` | ❌ Token 登录失败 | \`${ARGO_DOM:-未启用}\` | - |"$'\n'
+              return 0
+            fi
+
             ORG="$(./scripts/get-org-name.sh)"
             echo "已登录组织: ${ORG}"
+
+            # 预检该账号在目标地区是否有实例 API 权限
+            echo "正在检查 [${ACC_LABEL} (${ORG})] 在 [${METRO_CODE}] 地区的实例状态..."
+            if ! OLD_INSTANCES="$(unikraft instances list --filter "metro==${METRO_CODE}" -o json)"; then
+              echo "⚠️ [${ACC_LABEL} (${ORG})] 在 [${METRO_CODE}] 查询实例返回错误 (可能该账号计算额度已冻结或 API Key 需重新生成)，跳过构建！"
+              SUMMARY_ROWS="${SUMMARY_ROWS}| **${ACC_LABEL} (${ORG})** | \`${METRO_CODE}\` | \`${MEMORY}\` | ⚠️ 区域 API 401 (请检查账号额度/重生成Key) | \`${ARGO_DOM:-未启用}\` | - |"$'\n'
+              return 0
+            fi
 
             ./scripts/prepare-config.sh "$SLOT_UUID" "$ARGO_DOM" "$ARGO_TOK" "$NEZHA_SERVER" "$NEZHA_KEY"
 
@@ -202,10 +215,13 @@ jobs:
             done
 
             IMAGE_TAG="${ORG}/unikraft-${METRO_CODE}:latest"
-            unikraft build . --output "$IMAGE_TAG"
+            if ! unikraft build . --output "$IMAGE_TAG"; then
+              echo "❌ [${ACC_LABEL}] 镜像构建失败"
+              SUMMARY_ROWS="${SUMMARY_ROWS}| **${ACC_LABEL} (${ORG})** | \`${METRO_CODE}\` | \`${MEMORY}\` | ❌ 镜像构建失败 | \`${ARGO_DOM:-未启用}\` | - |"$'\n'
+              return 0
+            fi
 
             if [[ "$REPLACE_EXISTING" == "true" ]]; then
-              OLD_INSTANCES="$(unikraft instances list --filter "metro==${METRO_CODE}" -o json 2>/dev/null || echo '[]')"
               UUIDS=$(echo "$OLD_INSTANCES" | jq -r '.[].uuid // empty' || true)
               for u in $UUIDS; do
                 echo "清理同地区旧实例: $u"
@@ -224,20 +240,21 @@ jobs:
               --publish 443:8080/http+tls \
               -m "${MEMORY}" \
               --image "$IMAGE_TAG" \
-              -o json)"
+              -o json || true)"
 
             echo "$RUN_JSON" > run-output.json
-            FQDN="$(jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' run-output.json)"
+            FQDN="$(jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' run-output.json 2>/dev/null || true)"
             if [[ -z "$FQDN" || "$FQDN" == "null" ]]; then
               echo "❌ 获取实例域名失败 (${ACC_LABEL} - ${METRO_CODE})" >&2
-              cat run-output.json >&2
-              return 1
+              cat run-output.json >&2 || true
+              SUMMARY_ROWS="${SUMMARY_ROWS}| **${ACC_LABEL} (${ORG})** | \`${METRO_CODE}\` | \`${MEMORY}\` | ❌ 实例创建失败 | \`${ARGO_DOM:-未启用}\` | - |"$'\n'
+              return 0
             fi
 
             NODE_PREFIX="${ACC_LABEL}-${METRO_CODE^^}"
             SUB_CHUNK="$(./scripts/generate-subscription.sh "$SLOT_UUID" "$FQDN" "$ARGO_DOM" "$NODE_PREFIX")"
             ALL_SUBSCRIPTIONS="${ALL_SUBSCRIPTIONS}${SUB_CHUNK}"$'\n'
-            SUMMARY_ROWS="${SUMMARY_ROWS}| **${ACC_LABEL}** | \`${METRO_CODE}\` | \`${MEMORY}\` | \`${FQDN}\` | \`${ARGO_DOM:-未启用}\` | \`${NEZHA_SERVER:+已挂载}\` |"$'\n'
+            SUMMARY_ROWS="${SUMMARY_ROWS}| **${ACC_LABEL} (${ORG})** | \`${METRO_CODE}\` | \`${MEMORY}\` | \`${FQDN}\` | \`${ARGO_DOM:-未启用}\` | \`${NEZHA_SERVER:+已挂载}\` |"$'\n'
             DEPLOY_COUNT=$((DEPLOY_COUNT + 1))
             echo "✅ 部署完成: https://${FQDN}"
           }
@@ -255,8 +272,17 @@ jobs:
             deploy_slot "$ACC_PREFIX" "$METRO_CODE"
           fi
 
+          {
+            echo "## 🎉 Unikraft Ultra 部署报告（成功部署 ${DEPLOY_COUNT} 个实例）"
+            echo ""
+            echo "| 账号 (组织) | 地区 | 内存 | 原生直连域名 (Direct) / 状态 | Argo 隧道域名 | 哪吒探针 |"
+            echo "| :--- | :---: | :---: | :--- | :--- | :---: |"
+            printf '%s' "$SUMMARY_ROWS"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
           if [[ "$DEPLOY_COUNT" -eq 0 ]]; then
-            echo "❌ 未成功部署任何节点，请检查 GitHub Secrets 中的 UNIKRAFT_TOKEN_A/B/C 配置！" >&2
+            echo "❌ 未成功部署任何节点，请查看上方日志了解各账号详细状态！" >&2
             exit 1
           fi
 
@@ -264,12 +290,6 @@ jobs:
           SUB_URL="$(./scripts/encrypt-subscription.sh "$MASTER_UUID" "$CLEAN_SUBS")"
 
           {
-            echo "## 🎉 Unikraft Ultra 部署成功（共 ${DEPLOY_COUNT} 个实例）"
-            echo ""
-            echo "| 账号 | 地区 | 内存 | 原生直连域名 (Direct) | Argo 隧道域名 | 哪吒探针 |"
-            echo "| :--- | :---: | :---: | :--- | :--- | :---: |"
-            printf '%s' "$SUMMARY_ROWS"
-            echo ""
             echo "### 🔐 一键解密与可视化订阅面板"
             echo ""
             echo "点击下方链接进入 **极光毛玻璃控制面板**，输入主解密密钥 \`UUID\` 即可查看所有节点卡片、二维码及 Clash/Sing-box 一键导入："
