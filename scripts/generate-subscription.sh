@@ -21,7 +21,7 @@ uuid, fqdn, argo_domain, node_prefix, template = sys.argv[1:6]
 text = Path(template).read_text(encoding="utf-8")
 text = text.replace("YOUR_UUID", uuid)
 text = text.replace("xxx.sin.unikraft.app", fqdn)
-text = text.replace("NODE_PREFIX", urllib.parse.quote(node_prefix, safe="[]-_"))
+text = text.replace("NODE_PREFIX", node_prefix)
 if argo_domain:
     text = text.replace("ARGO_DOMAIN", argo_domain)
 print(text, end="")

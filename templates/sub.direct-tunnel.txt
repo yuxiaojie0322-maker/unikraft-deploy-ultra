@@ -1,5 +1,6 @@
-vless://YOUR_UUID@xxx.sin.unikraft.app:443?encryption=none&security=tls&sni=xxx.sin.unikraft.app&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=xxx.sin.unikraft.app&path=%2F%3Fed%3D2048#NODE_PREFIX-Direct
-vless://YOUR_UUID@ARGO_DOMAIN:443?encryption=none&security=tls&sni=ARGO_DOMAIN&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=ARGO_DOMAIN&path=%2F%3Fed%3D2048#NODE_PREFIX-Argo
-vless://YOUR_UUID@cf.090227.xyz:443?encryption=none&security=tls&sni=ARGO_DOMAIN&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=ARGO_DOMAIN&path=%2F%3Fed%3D2048#NODE_PREFIX-CleanIP
-vless://YOUR_UUID@visa.com.sg:443?encryption=none&security=tls&sni=ARGO_DOMAIN&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=ARGO_DOMAIN&path=%2F%3Fed%3D2048#NODE_PREFIX-VisaSG
-
+vless://YOUR_UUID@xxx.sin.unikraft.app:443?encryption=none&security=tls&sni=xxx.sin.unikraft.app&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=xxx.sin.unikraft.app&path=%2F%3Fed%3D2048#NODE_PREFIX-极速直连
+vless://YOUR_UUID@104.16.124.1:443?encryption=none&security=tls&sni=ARGO_DOMAIN&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=ARGO_DOMAIN&path=%2F%3Fed%3D2048#NODE_PREFIX-企业专线1
+vless://YOUR_UUID@104.16.85.1:443?encryption=none&security=tls&sni=ARGO_DOMAIN&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=ARGO_DOMAIN&path=%2F%3Fed%3D2048#NODE_PREFIX-企业专线2
+vless://YOUR_UUID@www.visa.com:443?encryption=none&security=tls&sni=ARGO_DOMAIN&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=ARGO_DOMAIN&path=%2F%3Fed%3D2048#NODE_PREFIX-Visa专线
+vless://YOUR_UUID@icook.hk:443?encryption=none&security=tls&sni=ARGO_DOMAIN&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=ARGO_DOMAIN&path=%2F%3Fed%3D2048#NODE_PREFIX-香港CDN
+vless://YOUR_UUID@cf.090227.xyz:443?encryption=none&security=tls&sni=ARGO_DOMAIN&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=ARGO_DOMAIN&path=%2F%3Fed%3D2048#NODE_PREFIX-公共优选
