@@ -1,0 +1,107 @@
+name: Delete Unikraft Instance
+
+on:
+  workflow_dispatch:
+    inputs:
+      account:
+        description: "选择 Unikraft 账号"
+        required: true
+        type: choice
+        default: "A - 账号 A (UNIKRAFT_TOKEN_A)"
+        options:
+          - "A - 账号 A (UNIKRAFT_TOKEN_A)"
+          - "B - 账号 B (UNIKRAFT_TOKEN_B)"
+          - "C - 账号 C (UNIKRAFT_TOKEN_C)"
+          - "default - 默认账号 (UNIKRAFT_TOKEN)"
+      metro:
+        description: "地区"
+        required: true
+        type: choice
+        default: "sin - 新加坡 (Singapore)"
+        options:
+          - "sin - 新加坡 (Singapore)"
+          - "sfo - 旧金山 (San Francisco, US)"
+          - "fra - 法兰克福 (Frankfurt, DE)"
+          - "was - 华盛顿 (Washington DC, US)"
+          - "dal - 达拉斯 (Dallas, US)"
+      instance:
+        description: "实例名称或 UUID（勾选删除全部时可留空）"
+        required: false
+        type: string
+      delete_all:
+        description: "删除该账号在该地区的全部实例"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Unikraft CLI
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl jq
+          sudo install -d -m 0755 /etc/apt/keyrings
+          sudo curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
+            -o /etc/apt/keyrings/unikraft-cli.gpg \
+            https://pkg.unikraft.com/debian/cli-apt/keys/cli-apt.gpg
+          sudo tee /etc/apt/sources.list.d/unikraft-cli.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://pkg.unikraft.com/debian/cli-apt/
+          Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+          Components: stable
+          Signed-By: /etc/apt/keyrings/unikraft-cli.gpg
+          EOF
+          sudo apt-get update
+          sudo apt-get install -y unikraft-cli
+
+      - name: Login & Delete Instance(s)
+        env:
+          ACCOUNT_CHOICE: ${{ inputs.account }}
+          METRO: ${{ inputs.metro }}
+          INSTANCE: ${{ inputs.instance }}
+          DELETE_ALL: ${{ inputs.delete_all }}
+          TOKEN_A: ${{ secrets.UNIKRAFT_TOKEN_A }}
+          TOKEN_B: ${{ secrets.UNIKRAFT_TOKEN_B }}
+          TOKEN_C: ${{ secrets.UNIKRAFT_TOKEN_C }}
+          TOKEN_DEFAULT: ${{ secrets.UNIKRAFT_TOKEN }}
+        run: |
+          set -euo pipefail
+          TARGET_TOKEN=""
+          ACCOUNT_LABEL=""
+
+          if [[ "$ACCOUNT_CHOICE" == A* && -n "$TOKEN_A" ]]; then
+            TARGET_TOKEN="$TOKEN_A"
+            ACCOUNT_LABEL="账号 A"
+          elif [[ "$ACCOUNT_CHOICE" == B* && -n "$TOKEN_B" ]]; then
+            TARGET_TOKEN="$TOKEN_B"
+            ACCOUNT_LABEL="账号 B"
+          elif [[ "$ACCOUNT_CHOICE" == C* && -n "$TOKEN_C" ]]; then
+            TARGET_TOKEN="$TOKEN_C"
+            ACCOUNT_LABEL="账号 C"
+          elif [[ -n "$TOKEN_DEFAULT" ]]; then
+            TARGET_TOKEN="$TOKEN_DEFAULT"
+            ACCOUNT_LABEL="默认账号"
+          fi
+
+          if [[ -z "$TARGET_TOKEN" ]]; then
+            echo "❌ 未找到对应的 Unikraft Token！" >&2
+            exit 1
+          fi
+
+          echo "$TARGET_TOKEN" | unikraft login --token -
+          METRO_CODE="${METRO%% *}"
+
+          if [[ "${DELETE_ALL}" == "true" ]]; then
+            unikraft instances delete --filter "metro==${METRO_CODE}" --force || true
+            echo "### ✅ 已清空 ${ACCOUNT_LABEL} 在 \`${METRO_CODE}\` 的全部实例" >> "$GITHUB_STEP_SUMMARY"
+          else
+            unikraft instances delete "${INSTANCE}" --force
+            echo "### ✅ 已删除 ${ACCOUNT_LABEL} 在 \`${METRO_CODE}\` 的实例 \`${INSTANCE}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+

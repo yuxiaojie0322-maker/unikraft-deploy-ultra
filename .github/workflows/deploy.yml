@@ -1,0 +1,287 @@
+name: Create Unikraft Instance (Ultra Matrix)
+
+on:
+  workflow_dispatch:
+    inputs:
+      account:
+        description: "部署模式 / 选择账号"
+        required: true
+        type: choice
+        default: "ALL - 一键部署 3 账号 6 节点黄金矩阵 (A:sin+sfo | B:sin+fra | C:was+dal)"
+        options:
+          - "ALL - 一键部署 3 账号 6 节点黄金矩阵 (A:sin+sfo | B:sin+fra | C:was+dal)"
+          - "A - 账号 A (UNIKRAFT_TOKEN_A)"
+          - "B - 账号 B (UNIKRAFT_TOKEN_B)"
+          - "C - 账号 C (UNIKRAFT_TOKEN_C)"
+          - "default - 默认账号 (UNIKRAFT_TOKEN)"
+      metro:
+        description: "部署地区 (仅单账号模式生效，ALL 模式自动分配 5 区 6 节点)"
+        required: true
+        type: choice
+        default: "sin - 新加坡 (Singapore)"
+        options:
+          - "sin - 新加坡 (Singapore)"
+          - "sfo - 旧金山 (San Francisco, US)"
+          - "fra - 法兰克福 (Frankfurt, DE)"
+          - "was - 华盛顿 (Washington DC, US)"
+          - "dal - 达拉斯 (Dallas, US)"
+      memory:
+        description: "实例内存大小 (推荐 256M 或 512M)"
+        required: true
+        type: choice
+        default: "256M"
+        options:
+          - "1024M"
+          - "512M"
+          - "256M"
+          - "128M"
+      replace_existing:
+        description: "自动清理目标地区旧实例 (防止超出每账号 2 节点免费限额)"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Unikraft CLI
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl jq xxd openssl
+          sudo install -d -m 0755 /etc/apt/keyrings
+          sudo curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
+            -o /etc/apt/keyrings/unikraft-cli.gpg \
+            https://pkg.unikraft.com/debian/cli-apt/keys/cli-apt.gpg
+          sudo tee /etc/apt/sources.list.d/unikraft-cli.sources >/dev/null <<EOF
+          Types: deb
+          URIs: https://pkg.unikraft.com/debian/cli-apt/
+          Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+          Components: stable
+          Signed-By: /etc/apt/keyrings/unikraft-cli.gpg
+          EOF
+          sudo apt-get update
+          sudo apt-get install -y unikraft-cli
+          unikraft version
+
+      - name: Execute Deployment (Single or 3-Account 6-Node Matrix)
+        env:
+          ACCOUNT_CHOICE: ${{ inputs.account }}
+          METRO_INPUT: ${{ inputs.metro }}
+          MEMORY: ${{ inputs.memory }}
+          REPLACE_EXISTING: ${{ inputs.replace_existing }}
+          MASTER_UUID: ${{ secrets.UUID }}
+          UUID_A_SIN: ${{ secrets.UUID_A_SIN }}
+          UUID_A_SFO: ${{ secrets.UUID_A_SFO }}
+          UUID_B_SIN: ${{ secrets.UUID_B_SIN }}
+          UUID_B_FRA: ${{ secrets.UUID_B_FRA }}
+          UUID_C_WAS: ${{ secrets.UUID_C_WAS }}
+          UUID_C_DAL: ${{ secrets.UUID_C_DAL }}
+          NEZHA_SERVER: ${{ secrets.NEZHA_SERVER }}
+          NEZHA_KEY: ${{ secrets.NEZHA_KEY }}
+          TOKEN_A: ${{ secrets.UNIKRAFT_TOKEN_A }}
+          TOKEN_B: ${{ secrets.UNIKRAFT_TOKEN_B }}
+          TOKEN_C: ${{ secrets.UNIKRAFT_TOKEN_C }}
+          TOKEN_DEFAULT: ${{ secrets.UNIKRAFT_TOKEN }}
+          DEFAULT_ARGO_TOKEN: ${{ secrets.ARGO_TOKEN }}
+          DEFAULT_ARGO_DOMAIN: ${{ secrets.ARGO_DOMAIN }}
+          ARGO_TOKEN_A_SIN: ${{ secrets.ARGO_TOKEN_A_SIN }}
+          ARGO_DOMAIN_A_SIN: ${{ secrets.ARGO_DOMAIN_A_SIN }}
+          ARGO_TOKEN_A_SFO: ${{ secrets.ARGO_TOKEN_A_SFO }}
+          ARGO_DOMAIN_A_SFO: ${{ secrets.ARGO_DOMAIN_A_SFO }}
+          ARGO_TOKEN_B_SIN: ${{ secrets.ARGO_TOKEN_B_SIN }}
+          ARGO_DOMAIN_B_SIN: ${{ secrets.ARGO_DOMAIN_B_SIN }}
+          ARGO_TOKEN_B_FRA: ${{ secrets.ARGO_TOKEN_B_FRA }}
+          ARGO_DOMAIN_B_FRA: ${{ secrets.ARGO_DOMAIN_B_FRA }}
+          ARGO_TOKEN_C_WAS: ${{ secrets.ARGO_TOKEN_C_WAS }}
+          ARGO_DOMAIN_C_WAS: ${{ secrets.ARGO_DOMAIN_C_WAS }}
+          ARGO_TOKEN_C_DAL: ${{ secrets.ARGO_TOKEN_C_DAL }}
+          ARGO_DOMAIN_C_DAL: ${{ secrets.ARGO_DOMAIN_C_DAL }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$MASTER_UUID" ]]; then
+            echo "❌ 错误: 必须在 GitHub Secrets 中配置 UUID！" >&2
+            exit 1
+          fi
+
+          chmod +x scripts/*.sh entrypoint.sh
+
+          ALL_SUBSCRIPTIONS=""
+          SUMMARY_ROWS=""
+          DEPLOY_COUNT=0
+
+          deploy_slot() {
+            local ACC_KEY="$1"
+            local METRO_CODE="$2"
+            local TOKEN=""
+            local ACC_LABEL=""
+            local ARGO_TOK=""
+            local ARGO_DOM=""
+            local SLOT_UUID="$MASTER_UUID"
+
+            case "$ACC_KEY" in
+              A)
+                TOKEN="$TOKEN_A"
+                ACC_LABEL="账号A"
+                if [[ "$METRO_CODE" == "sin" ]]; then
+                  ARGO_TOK="${ARGO_TOKEN_A_SIN:-$DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${ARGO_DOMAIN_A_SIN:-$DEFAULT_ARGO_DOMAIN}"
+                  SLOT_UUID="${UUID_A_SIN:-$MASTER_UUID}"
+                elif [[ "$METRO_CODE" == "sfo" ]]; then
+                  ARGO_TOK="${ARGO_TOKEN_A_SFO:-$DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${ARGO_DOMAIN_A_SFO:-$DEFAULT_ARGO_DOMAIN}"
+                  SLOT_UUID="${UUID_A_SFO:-$MASTER_UUID}"
+                else
+                  ARGO_TOK="${DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${DEFAULT_ARGO_DOMAIN}"
+                fi
+                ;;
+              B)
+                TOKEN="$TOKEN_B"
+                ACC_LABEL="账号B"
+                if [[ "$METRO_CODE" == "sin" ]]; then
+                  ARGO_TOK="${ARGO_TOKEN_B_SIN:-$DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${ARGO_DOMAIN_B_SIN:-$DEFAULT_ARGO_DOMAIN}"
+                  SLOT_UUID="${UUID_B_SIN:-$MASTER_UUID}"
+                elif [[ "$METRO_CODE" == "fra" ]]; then
+                  ARGO_TOK="${ARGO_TOKEN_B_FRA:-$DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${ARGO_DOMAIN_B_FRA:-$DEFAULT_ARGO_DOMAIN}"
+                  SLOT_UUID="${UUID_B_FRA:-$MASTER_UUID}"
+                else
+                  ARGO_TOK="${DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${DEFAULT_ARGO_DOMAIN}"
+                fi
+                ;;
+              C)
+                TOKEN="$TOKEN_C"
+                ACC_LABEL="账号C"
+                if [[ "$METRO_CODE" == "was" ]]; then
+                  ARGO_TOK="${ARGO_TOKEN_C_WAS:-$DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${ARGO_DOMAIN_C_WAS:-$DEFAULT_ARGO_DOMAIN}"
+                  SLOT_UUID="${UUID_C_WAS:-$MASTER_UUID}"
+                elif [[ "$METRO_CODE" == "dal" ]]; then
+                  ARGO_TOK="${ARGO_TOKEN_C_DAL:-$DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${ARGO_DOMAIN_C_DAL:-$DEFAULT_ARGO_DOMAIN}"
+                  SLOT_UUID="${UUID_C_DAL:-$MASTER_UUID}"
+                else
+                  ARGO_TOK="${DEFAULT_ARGO_TOKEN}"
+                  ARGO_DOM="${DEFAULT_ARGO_DOMAIN}"
+                fi
+                ;;
+              default)
+                TOKEN="${TOKEN_DEFAULT:-$TOKEN_A}"
+                ACC_LABEL="默认账号"
+                ARGO_TOK="${DEFAULT_ARGO_TOKEN}"
+                ARGO_DOM="${DEFAULT_ARGO_DOMAIN}"
+                ;;
+            esac
+
+            if [[ -z "$TOKEN" ]]; then
+              echo "⚠️ 跳过 [${ACC_LABEL} - ${METRO_CODE}]: 未配置对应的 Unikraft Token"
+              return 0
+            fi
+
+            echo "===================================================="
+            echo "🚀 开始部署: [${ACC_LABEL}] -> 地区 [${METRO_CODE}] (内存: ${MEMORY})"
+            echo "===================================================="
+
+            rm -rf "$HOME/.config/unikraft"
+            echo "$TOKEN" | unikraft login --token -
+            ORG="$(./scripts/get-org-name.sh)"
+            echo "已登录组织: ${ORG}"
+
+            ./scripts/prepare-config.sh "$SLOT_UUID" "$ARGO_DOM" "$ARGO_TOK" "$NEZHA_SERVER" "$NEZHA_KEY"
+
+            for img in $(unikraft images list -o json 2>/dev/null | jq -r '.[].ref // empty' | grep -v 'official/' || true); do
+              unikraft images remove "$img" 2>/dev/null || true
+            done
+
+            IMAGE_TAG="${ORG}/unikraft-${METRO_CODE}:latest"
+            unikraft build . --output "$IMAGE_TAG"
+
+            if [[ "$REPLACE_EXISTING" == "true" ]]; then
+              OLD_INSTANCES="$(unikraft instances list --filter "metro==${METRO_CODE}" -o json 2>/dev/null || echo '[]')"
+              UUIDS=$(echo "$OLD_INSTANCES" | jq -r '.[].uuid // empty' || true)
+              for u in $UUIDS; do
+                echo "清理同地区旧实例: $u"
+                unikraft instances delete "$u" --force || true
+              done
+            fi
+
+            RUN_JSON="$(unikraft run \
+              --metro "$METRO_CODE" \
+              --publish 443:8080/http+tls \
+              --scale-to-zero off \
+              -m "${MEMORY}" \
+              --image "$IMAGE_TAG" \
+              -o json 2>/dev/null || unikraft run \
+              --metro "$METRO_CODE" \
+              --publish 443:8080/http+tls \
+              -m "${MEMORY}" \
+              --image "$IMAGE_TAG" \
+              -o json)"
+
+            echo "$RUN_JSON" > run-output.json
+            FQDN="$(jq -r '[.. | objects | .fqdn? | select(type == "string")] | first // empty' run-output.json)"
+            if [[ -z "$FQDN" || "$FQDN" == "null" ]]; then
+              echo "❌ 获取实例域名失败 (${ACC_LABEL} - ${METRO_CODE})" >&2
+              cat run-output.json >&2
+              return 1
+            fi
+
+            NODE_PREFIX="${ACC_LABEL}-${METRO_CODE^^}"
+            SUB_CHUNK="$(./scripts/generate-subscription.sh "$SLOT_UUID" "$FQDN" "$ARGO_DOM" "$NODE_PREFIX")"
+            ALL_SUBSCRIPTIONS="${ALL_SUBSCRIPTIONS}${SUB_CHUNK}"$'\n'
+            SUMMARY_ROWS="${SUMMARY_ROWS}| **${ACC_LABEL}** | \`${METRO_CODE}\` | \`${MEMORY}\` | \`${FQDN}\` | \`${ARGO_DOM:-未启用}\` | \`${NEZHA_SERVER:+已挂载}\` |"$'\n'
+            DEPLOY_COUNT=$((DEPLOY_COUNT + 1))
+            echo "✅ 部署完成: https://${FQDN}"
+          }
+
+          if [[ "$ACCOUNT_CHOICE" == ALL* ]]; then
+            deploy_slot "A" "sin"
+            deploy_slot "A" "sfo"
+            deploy_slot "B" "sin"
+            deploy_slot "B" "fra"
+            deploy_slot "C" "was"
+            deploy_slot "C" "dal"
+          else
+            ACC_PREFIX="${ACCOUNT_CHOICE%% *}"
+            METRO_CODE="${METRO_INPUT%% *}"
+            deploy_slot "$ACC_PREFIX" "$METRO_CODE"
+          fi
+
+          if [[ "$DEPLOY_COUNT" -eq 0 ]]; then
+            echo "❌ 未成功部署任何节点，请检查 GitHub Secrets 中的 UNIKRAFT_TOKEN_A/B/C 配置！" >&2
+            exit 1
+          fi
+
+          CLEAN_SUBS="$(printf '%s' "$ALL_SUBSCRIPTIONS" | sed '/^[[:space:]]*$/d')"
+          SUB_URL="$(./scripts/encrypt-subscription.sh "$MASTER_UUID" "$CLEAN_SUBS")"
+
+          {
+            echo "## 🎉 Unikraft Ultra 部署成功（共 ${DEPLOY_COUNT} 个实例）"
+            echo ""
+            echo "| 账号 | 地区 | 内存 | 原生直连域名 (Direct) | Argo 隧道域名 | 哪吒探针 |"
+            echo "| :--- | :---: | :---: | :--- | :--- | :---: |"
+            printf '%s' "$SUMMARY_ROWS"
+            echo ""
+            echo "### 🔐 一键解密与可视化订阅面板"
+            echo ""
+            echo "点击下方链接进入 **极光毛玻璃控制面板**，输入主解密密钥 \`UUID\` 即可查看所有节点卡片、二维码及 Clash/Sing-box 一键导入："
+            echo ""
+            echo "👉 **[点击打开加密订阅面板](${SUB_URL})**"
+            echo ""
+            echo "\`\`\`text"
+            echo "${SUB_URL}"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "========================================"
+          echo "Encrypted subscription URL:"
+          echo "$SUB_URL"
+          echo "========================================"
