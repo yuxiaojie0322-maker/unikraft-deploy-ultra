@@ -26,15 +26,23 @@ on:
           - "was - 华盛顿 (Washington DC, US)"
           - "dal - 达拉斯 (Dallas, US)"
       memory:
-        description: "实例内存大小 (推荐 256M 或 512M)"
+        description: "实例内存大小 (EROFS 架构推荐 128M，比 1024M 节省 87.5% 免费额度)"
         required: true
         type: choice
-        default: "256M"
+        default: "128M"
         options:
-          - "1024M"
-          - "512M"
-          - "256M"
           - "128M"
+          - "256M"
+          - "512M"
+          - "1024M"
+      scale_to_zero:
+        description: "休眠策略 (Argo+哪吒选 off 常驻；仅用原生直连可选 on 闲置休眠，省 95% 额度)"
+        required: true
+        type: choice
+        default: "off - 24小时常驻 (保持 Argo 隧道与哪吒探针不断线)"
+        options:
+          - "off - 24小时常驻 (保持 Argo 隧道与哪吒探针不断线)"
+          - "on - 闲置自动休眠 (来流量 10ms 唤醒，极度节省免费额度)"
       replace_existing:
         description: "自动清理目标地区旧实例 (防止超出每账号 2 节点免费限额)"
         required: true
@@ -73,6 +81,7 @@ jobs:
           ACCOUNT_CHOICE: ${{ inputs.account }}
           METRO_INPUT: ${{ inputs.metro }}
           MEMORY: ${{ inputs.memory }}
+          SCALE_TO_ZERO_INPUT: ${{ inputs.scale_to_zero }}
           REPLACE_EXISTING: ${{ inputs.replace_existing }}
           MASTER_UUID: ${{ secrets.UUID }}
           UUID_A_SIN: ${{ secrets.UUID_A_SIN }}
@@ -229,10 +238,11 @@ jobs:
               done
             fi
 
+            SCALE_MODE="${SCALE_TO_ZERO_INPUT%% *}"
             RUN_JSON="$(unikraft run \
               --metro "$METRO_CODE" \
               --publish 443:8080/http+tls \
-              --scale-to-zero off \
+              --scale-to-zero "${SCALE_MODE}" \
               -m "${MEMORY}" \
               --image "$IMAGE_TAG" \
               -o json 2>/dev/null || unikraft run \

@@ -1,50 +1,23 @@
-name: Auto Keep-Alive (Dynamic Multi-Account)
+name: Safe Keep-Alive (Zero-API Traffic Ping)
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Unikraft CLI
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ca-certificates curl jq
-          sudo install -d -m 0755 /etc/apt/keyrings
-          sudo curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
-            -o /etc/apt/keyrings/unikraft-cli.gpg \
-            https://pkg.unikraft.com/debian/cli-apt/keys/cli-apt.gpg
-          sudo tee /etc/apt/sources.list.d/unikraft-cli.sources >/dev/null <<EOF
-          Types: deb
-          URIs: https://pkg.unikraft.com/debian/cli-apt/
-          Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
-          Components: stable
-          Signed-By: /etc/apt/keyrings/unikraft-cli.gpg
-          EOF
-          sudo apt-get update
-          sudo apt-get install -y unikraft-cli
-
-      - name: Discover & Ping All Instances Across 3 Accounts
+      - name: Low-Profile HTTP Keep-Alive (No Unikraft API Polling)
         env:
-          TOKEN_A: ${{ secrets.UNIKRAFT_TOKEN_A }}
-          TOKEN_B: ${{ secrets.UNIKRAFT_TOKEN_B }}
-          TOKEN_C: ${{ secrets.UNIKRAFT_TOKEN_C }}
-          TOKEN_DEFAULT: ${{ secrets.UNIKRAFT_TOKEN }}
+          ARGO_DOMAIN_A_SIN: ${{ secrets.ARGO_DOMAIN_A_SIN }}
+          ARGO_DOMAIN_A_SFO: ${{ secrets.ARGO_DOMAIN_A_SFO }}
+          ARGO_DOMAIN_B_SIN: ${{ secrets.ARGO_DOMAIN_B_SIN }}
+          ARGO_DOMAIN_B_FRA: ${{ secrets.ARGO_DOMAIN_B_FRA }}
+          ARGO_DOMAIN_C_WAS: ${{ secrets.ARGO_DOMAIN_C_WAS }}
+          ARGO_DOMAIN_C_DAL: ${{ secrets.ARGO_DOMAIN_C_DAL }}
         run: |
-          for TOKEN in "$TOKEN_A" "$TOKEN_B" "$TOKEN_C" "$TOKEN_DEFAULT"; do
-            if [[ -z "$TOKEN" ]]; then continue; fi
-            rm -rf "$HOME/.config/unikraft"
-            echo "$TOKEN" | unikraft login --token - >/dev/null 2>&1 || continue
-            for METRO in sin sfo fra was dal; do
-              FQDNS=$(unikraft instances list --filter "metro==${METRO}" -o json 2>/dev/null | jq -r '.. | objects | .fqdn? | select(type == "string")' || true)
-              for d in $FQDNS; do
-                echo -n "[${METRO}] Pinging https://$d -> "
-                curl -s -m 5 -o /dev/null -w "HTTP %{http_code} (%{time_total}s)\n" "https://$d" || echo "FAIL"
-              done
-            done
+          for d in "$ARGO_DOMAIN_A_SIN" "$ARGO_DOMAIN_A_SFO" "$ARGO_DOMAIN_B_SIN" "$ARGO_DOMAIN_B_FRA" "$ARGO_DOMAIN_C_WAS" "$ARGO_DOMAIN_C_DAL"; do
+            if [[ -z "$d" ]]; then continue; fi
+            echo -n "Pinging https://$d -> "
+            curl -s -m 5 -o /dev/null -w "HTTP %{http_code} (%{time_total}s)\n" "https://$d" || echo "FAIL"
           done
-
