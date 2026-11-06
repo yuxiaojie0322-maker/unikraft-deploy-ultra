@@ -2,7 +2,7 @@ FROM alpine:3.21 AS builder
 
 ARG SING_BOX_VERSION=1.14.0-rc.1
 
-RUN apk add --no-cache curl unzip && \
+RUN apk add --no-cache curl unzip ca-certificates && \
     curl -fsSL "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz" \
     | tar -xz --strip-components=1 -C /tmp "sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box" && \
     chmod +x /tmp/sing-box && \
@@ -13,9 +13,11 @@ RUN apk add --no-cache curl unzip && \
 
 ############################################################
 
-FROM alpine:3.21
+FROM debian:trixie-slim
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /tmp/sing-box /app
 COPY --from=builder /tmp/nezha-agent /nezha-agent
