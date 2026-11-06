@@ -36,6 +36,10 @@
           "uuid": "YOUR_UUID"
         }
       ],
+      "multiplex": {
+        "enabled": true,
+        "padding": false
+      },
       "transport": {
         "type": "ws",
         "path": "/",
